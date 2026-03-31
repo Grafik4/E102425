@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
+    <title>Угадай следующую комбинацию</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #1a472a 0%, #0e2a1a 100%);
+            min-height: 100vh;
+            padding: 20px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: system-ui, -apple-system, 'Segoe UI', 'Roboto', monospace;
+        }
+        
+        .app {
+            max-width: 700px;
+            width: 100%;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        
+        .dice {
+            font-size: 2.4rem;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
+        }
+        
+        .title {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #FFE9C7;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+            background: rgba(0,0,0,0.25);
+            padding: 6px 20px;
+            border-radius: 60px;
+            backdrop-filter: blur(4px);
+        }
+        
+        .info-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            background: rgba(0,0,0,0.4);
+            backdrop-filter: blur(8px);
+            padding: 10px 18px;
+            border-radius: 60px;
+            margin-bottom: 24px;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        
+        .msk-time {
+            font-family: 'Courier New', monospace;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #FFE6B3;
+            background: #2C553C;
+            padding: 5px 14px;
+            border-radius: 40px;
+        }
+        
+        .step-badge {
+            background: #D9A13B;
+            color: #2A3A2A;
+            padding: 5px 16px;
+            border-radius: 40px;
+            font-weight: 800;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 16px 8px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,215,140,0.6);
+        }
+        
+        .numbers {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .number-row {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .number {
+            width: 52px;
+            height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-size: 1.3rem;
+            font-weight: 800;
+            font-family: 'Courier New', monospace;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+        }
+        
+        .number.red {
+            background: linear-gradient(145deg, #E53E3E, #C53030);
+            color: white;
+        }
+        
+        .number.blue {
+            background: linear-gradient(145deg, #3B82F6, #1E40AF);
+            color: white;
+        }
+        
+        .number.green {
+            background: linear-gradient(145deg, #2D6A4F, #1B4D3A);
+            color: #FFF2CF;
+        }
+        
+        .top-position {
+            margin-bottom: 4px;
+        }
+        
+        @media (max-width: 600px) {
+            .number {
+                width: 44px;
+                height: 44px;
+                font-size: 1.1rem;
+            }
+            .card {
+                padding: 12px 6px;
+            }
+            .title {
+                font-size: 1.2rem;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .number {
+                width: 38px;
+                height: 38px;
+                font-size: 0.95rem;
+            }
+            .grid {
+                gap: 8px;
+            }
+            .info-bar {
+                padding: 6px 12px;
+            }
+            .msk-time, .step-badge {
+                font-size: 0.7rem;
+                padding: 3px 8px;
+            }
+        }
+        
+        @keyframes numberPop {
+            0% { transform: scale(1.1); box-shadow: 0 0 0 3px rgba(255,215,140,0.6);}
+            100% { transform: scale(1); }
+        }
+        
+        .flash {
+            animation: numberPop 0.25s ease-out;
+        }
+    </style>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <span class="dice">🎲</span>
+        <span class="title">Угадай следующую комбинацию</span>
+    </div>
+    
+    <div class="info-bar">
+        <span class="msk-time" id="mskClock">--:--:--</span>
+        <span class="step-badge" id="stepDisplay">0/10</span>
+    </div>
+    
+    <div id="gridContainer" class="grid"></div>
+</div>
+
+<script>
+    // ========= КОНСТАНТЫ =========
+    const TOTAL_CARDS = 10;
+    const NUMBERS_PER_CARD = 4;
+    const TOTAL_STEPS_IN_CYCLE = 10;
+    
+    // ГРУППА 1: красные кружочки (10 чисел) - всегда на первом месте
+    const RED_NUMBERS = new Set([2, 3, 4, 12, 22, 25, 35, 36, 41, 27]);
+    const RED_ARRAY = [2, 3, 4, 12, 22, 25, 35, 36, 41, 27];
+    
+    // ГРУППА 2: синие кружочки (10 чисел) - всегда на втором месте
+    const BLUE_NUMBERS = new Set([18, 8, 21, 20, 23, 7, 19, 29, 24, 10]);
+    const BLUE_ARRAY = [18, 8, 21, 20, 23, 7, 19, 29, 24, 10];
+    
+    // Все особые числа
+    const SPECIAL_NUMBERS = new Set([...RED_NUMBERS, ...BLUE_NUMBERS]);
+    
+    // Остальные числа
+    const REMAINING_ARRAY = (() => {
+        const remaining = [];
+        for (let i = 1; i <= 40; i++) {
+            if (!SPECIAL_NUMBERS.has(i)) remaining.push(i);
+        }
+        return remaining;
+    })();
+    
+    // ========= ДЕТЕРМИНИРОВАННЫЙ ПСЕВДОСЛУЧАЙНЫЙ ГЕНЕРАТОР =========
+    // Простая, но эффективная хеш-функция для строк (аналог djb2)
+    function hashString(str) {
+        let hash = 5381;
+        for (let i = 0; i < str.length; i++) {
+            hash = ((hash << 5) + hash) + str.charCodeAt(i);
+            hash = hash & 0x7fffffff; // 31-битное положительное число
+        }
+        return hash;
+    }
+    
+    // Детерминированный генератор случайных чисел на основе seed
+    class SeededRandom {
+        constructor(seed) {
+            this.seed = seed;
+            this.state = seed;
+        }
+        
+        // Возвращает число от 0 до 1
+        next() {
+            // Линейный конгруэнтный генератор
+            this.state = (this.state * 1103515245 + 12345) & 0x7fffffff;
+            return this.state / 0x7fffffff;
+        }
+        
+        // Перемешивает массив детерминированно
+        shuffleArray(arr) {
+            const result = [...arr];
+            for (let i = result.length - 1; i > 0; i--) {
+                const j = Math.floor(this.next() * (i + 1));
+                [result[i], result[j]] = [result[j], result[i]];
+            }
+            return result;
+        }
+    }
+    
+    // ========= РАСЧЁТ ТЕКУЩЕГО ШАГА И ЦИКЛА =========
+    function getCurrentCycleAndStep() {
+        const now = new Date();
+        // Московское время UTC+3
+        const mskNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+        
+        // Находим ближайший понедельник 00:01
+        const year = mskNow.getUTCFullYear();
+        const month = mskNow.getUTCMonth();
+        const date = mskNow.getUTCDate();
+        
+        // Создаём дату начала текущей недели (понедельник 00:01)
+        let currentMonday = new Date(Date.UTC(year, month, date, 0, 1, 0));
+        let dayOfWeek = currentMonday.getUTCDay(); // 0 = воскресенье
+        if (dayOfWeek === 0) dayOfWeek = 7;
+        const daysToMonday = (dayOfWeek === 1) ? 0 : (dayOfWeek - 1);
+        currentMonday.setUTCDate(currentMonday.getUTCDate() - daysToMonday);
+        
+        // Если текущее время раньше текущего понедельника 00:01, откатываем на неделю
+        if (mskNow < currentMonday) {
+            currentMonday.setUTCDate(currentMonday.getUTCDate() - 7);
+        }
+        
+        // Вычисляем номер недели с начала эпохи (для определения цикла)
+        const epochStart = new Date(Date.UTC(2025, 0, 6, 0, 1, 0)); // первый понедельник 2025 года
+        const weeksSinceEpoch = Math.floor((currentMonday - epochStart) / (7 * 24 * 60 * 60 * 1000));
+        
+        // Номер цикла (меняется каждые 10 недель)
+        const cycleNumber = Math.floor(weeksSinceEpoch / TOTAL_STEPS_IN_CYCLE);
+        
+        // Номер шага в цикле (1..10)
+        const stepNumber = (weeksSinceEpoch % TOTAL_STEPS_IN_CYCLE) + 1;
+        
+        // Проверяем, не наступил ли момент смены комбинации
+        // Смена происходит в понедельник 00:01, и весь следующий шаг длится ровно 7 дней
+        return { cycleNumber, stepNumber, currentMonday };
+    }
+    
+    // ========= ГЕНЕРАЦИЯ КОМБИНАЦИЙ НА ОСНОВЕ СИДА =========
+    function generateCombinations(cycleNumber, stepNumber) {
+        // Создаём уникальный seed для этого шага
+        // Используем cycleNumber и stepNumber, чтобы на всех устройствах было одинаково
+        const seedString = `${cycleNumber}:${stepNumber}`;
+        const seed = hashString(seedString);
+        const rng = new SeededRandom(seed);
+        
+        // 1. Перемешиваем красные числа (определяем, в какой карточке какое красное число)
+        const shuffledRed = rng.shuffleArray([...RED_ARRAY]);
+        
+        // 2. Перемешиваем синие числа
+        const shuffledBlue = rng.shuffleArray([...BLUE_ARRAY]);
+        
+        // 3. Перемешиваем остальные числа (20 штук)
+        const shuffledRemaining = rng.shuffleArray([...REMAINING_ARRAY]);
+        
+        // Создаём 10 карточек
+        const cards = Array(TOTAL_CARDS).fill().map(() => Array(NUMBERS_PER_CARD).fill(null));
+        
+        // Распределяем красные числа по первым позициям
+        for (let i = 0; i < TOTAL_CARDS; i++) {
+            cards[i][0] = shuffledRed[i];
+        }
+        
+        // Распределяем синие числа по вторым позициям
+        for (let i = 0; i < TOTAL_CARDS; i++) {
+            cards[i][1] = shuffledBlue[i];
+        }
+        
+        // Распределяем остальные числа по позициям 2 и 3 (индексы 2 и 3)
+        let remainingIndex = 0;
+        for (let i = 0; i < TOTAL_CARDS; i++) {
+            for (let pos = 2; pos < NUMBERS_PER_CARD; pos++) {
+                cards[i][pos] = shuffledRemaining[remainingIndex++];
+            }
+        }
+        
+        // Дополнительное перемешивание оставшихся чисел внутри каждой карточки
+        // (чтобы порядок в позициях 2 и 3 был разным)
+        for (let card of cards) {
+            const redNum = card[0];
+            const blueNum = card[1];
+            const others = [card[2], card[3]];
+            // Перемешиваем others детерминированно на основе seed + позиции
+            const cardSeed = hashString(`${seedString}:${card[0]}:${card[1]}`);
+            const cardRng = new SeededRandom(cardSeed);
+            const shuffledOthers = cardRng.shuffleArray(others);
+            card[2] = shuffledOthers[0];
+            card[3] = shuffledOthers[1];
+        }
+        
+        return cards;
+    }
+    
+    // ========= ОТРИСОВКА =========
+    function renderGrid(cards) {
+        const gridEl = document.getElementById('gridContainer');
+        if (!gridEl) return;
+        
+        const getColorClass = (num) => {
+            if (RED_NUMBERS.has(num)) return 'red';
+            if (BLUE_NUMBERS.has(num)) return 'blue';
+            return 'green';
+        };
+        
+        let html = '';
+        for (let i = 0; i < TOTAL_CARDS; i++) {
+            const card = cards[i];
+            html += `
+                <div class="card">
+                    <div class="numbers">
+                        <div class="number-row top-position">
+                            <div class="number ${getColorClass(card[0])}">${card[0]}</div>
+                        </div>
+                        <div class="number-row">
+                            <div class="number ${getColorClass(card[1])}">${card[1]}</div>
+                            <div class="number ${getColorClass(card[2])}">${card[2]}</div>
+                            <div class="number ${getColorClass(card[3])}">${card[3]}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        gridEl.innerHTML = html;
+        
+        // Анимация
+        const allNumbers = document.querySelectorAll('.number');
+        allNumbers.forEach(num => {
+            num.classList.add('flash');
+            setTimeout(() => num.classList.remove('flash'), 250);
+        });
+    }
+    
+    function updateStepDisplay(stepNumber) {
+        const stepDisplay = document.getElementById('stepDisplay');
+        if (stepDisplay) {
+            stepDisplay.innerText = `${stepNumber}/${TOTAL_STEPS_IN_CYCLE}`;
+        }
+    }
+    
+    // Московское время
+    function updateMoscowClock() {
+        const now = new Date();
+        const msk = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+        const hh = String(msk.getUTCHours()).padStart(2, '0');
+        const mm = String(msk.getUTCMinutes()).padStart(2, '0');
+        const ss = String(msk.getUTCSeconds()).padStart(2, '0');
+        const mskClock = document.getElementById('mskClock');
+        if (mskClock) mskClock.innerText = `${hh}:${mm}:${ss}`;
+    }
+    
+    // Основная функция обновления
+    function update() {
+        const { cycleNumber, stepNumber } = getCurrentCycleAndStep();
+        const cards = generateCombinations(cycleNumber, stepNumber);
+        renderGrid(cards);
+        updateStepDisplay(stepNumber);
+        
+        // Планируем следующее обновление в 00:01 понедельника
+        const now = new Date();
+        const mskNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+        let nextMonday = new Date(mskNow);
+        nextMonday.setUTCDate(nextMonday.getUTCDate() + ((8 - nextMonday.getUTCDay()) % 7 || 7));
+        nextMonday.setUTCHours(0, 1, 0, 0);
+        
+        const delay = nextMonday.getTime() - mskNow.getTime();
+        if (delay > 0 && delay < 7 * 24 * 60 * 60 * 1000) {
+            setTimeout(() => {
+                update();
+            }, delay);
+        }
+    }
+    
+    // Запуск
+    function init() {
+        update();
+        setInterval(updateMoscowClock, 1000);
+    }
+    
+    init();
+</script>
+</body>
+</html>
