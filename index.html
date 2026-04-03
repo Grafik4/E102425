@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
-    <title>Угадайка</title>
+    <title>Угадай следующую комбинацию</title>
     <style>
         * {
             margin: 0;
@@ -27,6 +27,9 @@
             max-width: 700px;
             width: 100%;
             margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            min-height: calc(100vh - 40px);
         }
         
         .header {
@@ -186,6 +189,47 @@
         .flash {
             animation: numberPop 0.25s ease-out;
         }
+
+        .action-buttons {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 24px;
+            gap: 20px;
+            padding: 8px 0;
+        }
+
+        .action-btn {
+            flex: 1;
+            background: white;
+            border: none;
+            border-radius: 60px;
+            padding: 14px 20px;
+            font-size: 1.2rem;
+            font-weight: 700;
+            font-family: system-ui, -apple-system, 'Segoe UI', 'Roboto', monospace;
+            color: black;
+            text-align: center;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            transition: 0.1s linear;
+            letter-spacing: 1px;
+        }
+        
+        .action-btn:active {
+            transform: scale(0.97);
+            background: #f0f0f0;
+        }
+
+        @media (max-width: 480px) {
+            .action-btn {
+                padding: 10px 16px;
+                font-size: 1rem;
+            }
+            .action-buttons {
+                gap: 16px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -201,6 +245,11 @@
     </div>
     
     <div id="gridContainer" class="grid"></div>
+
+    <div class="action-buttons">
+        <button class="action-btn" id="prevWeekBtn">Старт</button>
+        <button class="action-btn" id="currentWeekBtn">Стоп</button>
+    </div>
 </div>
 
 <script>
@@ -230,31 +279,24 @@
     })();
     
     // ========= ДЕТЕРМИНИРОВАННЫЙ ПСЕВДОСЛУЧАЙНЫЙ ГЕНЕРАТОР =========
-    // Простая, но эффективная хеш-функция для строк (аналог djb2)
     function hashString(str) {
         let hash = 5381;
         for (let i = 0; i < str.length; i++) {
             hash = ((hash << 5) + hash) + str.charCodeAt(i);
-            hash = hash & 0x7fffffff; // 31-битное положительное число
+            hash = hash & 0x7fffffff;
         }
         return hash;
     }
     
-    // Детерминированный генератор случайных чисел на основе seed
     class SeededRandom {
         constructor(seed) {
             this.seed = seed;
             this.state = seed;
         }
-        
-        // Возвращает число от 0 до 1
         next() {
-            // Линейный конгруэнтный генератор
             this.state = (this.state * 1103515245 + 12345) & 0x7fffffff;
             return this.state / 0x7fffffff;
         }
-        
-        // Перемешивает массив детерминированно
         shuffleArray(arr) {
             const result = [...arr];
             for (let i = result.length - 1; i > 0; i--) {
@@ -266,74 +308,57 @@
     }
     
     // ========= РАСЧЁТ ТЕКУЩЕГО ШАГА И ЦИКЛА =========
-    function getCurrentCycleAndStep() {
-        const now = new Date();
-        // Московское время UTC+3
+    function getCurrentCycleAndStep(referenceDate = null) {
+        const now = referenceDate ? new Date(referenceDate) : new Date();
         const mskNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
         
-        // Находим ближайший понедельник 00:01
         const year = mskNow.getUTCFullYear();
         const month = mskNow.getUTCMonth();
         const date = mskNow.getUTCDate();
         
-        // Создаём дату начала текущей недели (понедельник 00:01)
         let currentMonday = new Date(Date.UTC(year, month, date, 0, 1, 0));
-        let dayOfWeek = currentMonday.getUTCDay(); // 0 = воскресенье
+        let dayOfWeek = currentMonday.getUTCDay();
         if (dayOfWeek === 0) dayOfWeek = 7;
         const daysToMonday = (dayOfWeek === 1) ? 0 : (dayOfWeek - 1);
         currentMonday.setUTCDate(currentMonday.getUTCDate() - daysToMonday);
         
-        // Если текущее время раньше текущего понедельника 00:01, откатываем на неделю
         if (mskNow < currentMonday) {
             currentMonday.setUTCDate(currentMonday.getUTCDate() - 7);
         }
         
-        // Вычисляем номер недели с начала эпохи (для определения цикла)
-        const epochStart = new Date(Date.UTC(2025, 0, 6, 0, 1, 0)); // первый понедельник 2025 года
+        const epochStart = new Date(Date.UTC(2025, 0, 6, 0, 1, 0));
         const weeksSinceEpoch = Math.floor((currentMonday - epochStart) / (7 * 24 * 60 * 60 * 1000));
-        
-        // Номер цикла (меняется каждые 10 недель)
         const cycleNumber = Math.floor(weeksSinceEpoch / TOTAL_STEPS_IN_CYCLE);
-        
-        // Номер шага в цикле (1..10)
         const stepNumber = (weeksSinceEpoch % TOTAL_STEPS_IN_CYCLE) + 1;
         
-        // Проверяем, не наступил ли момент смены комбинации
-        // Смена происходит в понедельник 00:01, и весь следующий шаг длится ровно 7 дней
         return { cycleNumber, stepNumber, currentMonday };
     }
     
-    // ========= ГЕНЕРАЦИЯ КОМБИНАЦИЙ НА ОСНОВЕ СИДА =========
+    // Получение данных для недели со смещением (0 = текущая, -1 = предыдущая)
+    function getWeekData(offsetWeeks = 0) {
+        const now = new Date();
+        const targetDate = new Date(now.getTime() + offsetWeeks * 7 * 24 * 60 * 60 * 1000);
+        const { cycleNumber, stepNumber } = getCurrentCycleAndStep(targetDate);
+        return { cycleNumber, stepNumber };
+    }
+    
+    // Генерация комбинаций на основе cycle и step
     function generateCombinations(cycleNumber, stepNumber) {
-        // Создаём уникальный seed для этого шага
-        // Используем cycleNumber и stepNumber, чтобы на всех устройствах было одинаково
         const seedString = `${cycleNumber}:${stepNumber}`;
         const seed = hashString(seedString);
         const rng = new SeededRandom(seed);
         
-        // 1. Перемешиваем красные числа (определяем, в какой карточке какое красное число)
         const shuffledRed = rng.shuffleArray([...RED_ARRAY]);
-        
-        // 2. Перемешиваем синие числа
         const shuffledBlue = rng.shuffleArray([...BLUE_ARRAY]);
-        
-        // 3. Перемешиваем остальные числа (20 штук)
         const shuffledRemaining = rng.shuffleArray([...REMAINING_ARRAY]);
         
-        // Создаём 10 карточек
         const cards = Array(TOTAL_CARDS).fill().map(() => Array(NUMBERS_PER_CARD).fill(null));
         
-        // Распределяем красные числа по первым позициям
         for (let i = 0; i < TOTAL_CARDS; i++) {
             cards[i][0] = shuffledRed[i];
-        }
-        
-        // Распределяем синие числа по вторым позициям
-        for (let i = 0; i < TOTAL_CARDS; i++) {
             cards[i][1] = shuffledBlue[i];
         }
         
-        // Распределяем остальные числа по позициям 2 и 3 (индексы 2 и 3)
         let remainingIndex = 0;
         for (let i = 0; i < TOTAL_CARDS; i++) {
             for (let pos = 2; pos < NUMBERS_PER_CARD; pos++) {
@@ -341,13 +366,8 @@
             }
         }
         
-        // Дополнительное перемешивание оставшихся чисел внутри каждой карточки
-        // (чтобы порядок в позициях 2 и 3 был разным)
         for (let card of cards) {
-            const redNum = card[0];
-            const blueNum = card[1];
             const others = [card[2], card[3]];
-            // Перемешиваем others детерминированно на основе seed + позиции
             const cardSeed = hashString(`${seedString}:${card[0]}:${card[1]}`);
             const cardRng = new SeededRandom(cardSeed);
             const shuffledOthers = cardRng.shuffleArray(others);
@@ -358,10 +378,20 @@
         return cards;
     }
     
-    // ========= ОТРИСОВКА =========
-    function renderGrid(cards) {
-        const gridEl = document.getElementById('gridContainer');
-        if (!gridEl) return;
+    // ========= УПРАВЛЕНИЕ СОСТОЯНИЕМ =========
+    let currentCards = null;
+    let autoResetTimer = null;
+    let isPrevModeActive = false;
+    let scheduledWeeklyUpdate = null;
+    
+    const gridContainer = document.getElementById('gridContainer');
+    const stepDisplaySpan = document.getElementById('stepDisplay');
+    const prevBtn = document.getElementById('prevWeekBtn');
+    const currentBtn = document.getElementById('currentWeekBtn');
+    
+    // Отрисовка с анимацией и обновлением номера шага
+    function renderCards(cards, stepNumber) {
+        if (!cards) return;
         
         const getColorClass = (num) => {
             if (RED_NUMBERS.has(num)) return 'red';
@@ -388,9 +418,12 @@
             `;
         }
         
-        gridEl.innerHTML = html;
+        gridContainer.innerHTML = html;
         
-        // Анимация
+        if (stepNumber !== undefined && stepDisplaySpan) {
+            stepDisplaySpan.innerText = `${stepNumber}/${TOTAL_STEPS_IN_CYCLE}`;
+        }
+        
         const allNumbers = document.querySelectorAll('.number');
         allNumbers.forEach(num => {
             num.classList.add('flash');
@@ -398,14 +431,69 @@
         });
     }
     
-    function updateStepDisplay(stepNumber) {
-        const stepDisplay = document.getElementById('stepDisplay');
-        if (stepDisplay) {
-            stepDisplay.innerText = `${stepNumber}/${TOTAL_STEPS_IN_CYCLE}`;
+    // Загрузка текущей недели (основной режим)
+    function loadCurrentWeek() {
+        if (autoResetTimer) {
+            clearTimeout(autoResetTimer);
+            autoResetTimer = null;
+        }
+        const weekData = getWeekData(0);
+        const cards = generateCombinations(weekData.cycleNumber, weekData.stepNumber);
+        currentCards = cards;
+        isPrevModeActive = false;
+        renderCards(cards, weekData.stepNumber);
+    }
+    
+    // Загрузка предыдущей недели с автосбросом через 60 секунд
+    function loadPreviousWeek() {
+        // Если уже в режиме просмотра прошлой недели, сбрасываем старый таймер и запускаем новый
+        if (autoResetTimer) {
+            clearTimeout(autoResetTimer);
+            autoResetTimer = null;
+        }
+        
+        const weekData = getWeekData(-1);
+        const cards = generateCombinations(weekData.cycleNumber, weekData.stepNumber);
+        currentCards = cards;
+        isPrevModeActive = true;
+        renderCards(cards, weekData.stepNumber);
+        
+        // Автоматический возврат к текущей неделе через 1 минуту
+        autoResetTimer = setTimeout(() => {
+            // Проверяем, не переключился ли уже пользователь вручную
+            if (isPrevModeActive === true) {
+                loadCurrentWeek();
+            }
+            autoResetTimer = null;
+        }, 60 * 1000);
+    }
+    
+    // ========= ЕЖЕНЕДЕЛЬНОЕ АВТООБНОВЛЕНИЕ =========
+    function scheduleNextWeekUpdate() {
+        if (scheduledWeeklyUpdate) clearTimeout(scheduledWeeklyUpdate);
+        
+        const now = new Date();
+        const mskNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+        let nextMonday = new Date(mskNow);
+        nextMonday.setUTCDate(nextMonday.getUTCDate() + ((8 - nextMonday.getUTCDay()) % 7 || 7));
+        nextMonday.setUTCHours(0, 1, 0, 0);
+        const delay = nextMonday.getTime() - mskNow.getTime();
+        
+        if (delay > 0 && delay < 7 * 24 * 60 * 60 * 1000) {
+            scheduledWeeklyUpdate = setTimeout(() => {
+                // При наступлении нового понедельника обновляем комбинацию до актуальной
+                // Если активен режим просмотра прошлой недели — принудительно сбрасываем
+                if (autoResetTimer) {
+                    clearTimeout(autoResetTimer);
+                    autoResetTimer = null;
+                }
+                loadCurrentWeek();
+                scheduleNextWeekUpdate();
+            }, delay);
         }
     }
     
-    // Московское время
+    // ========= ЧАСЫ МОСКОВСКОГО ВРЕМЕНИ =========
     function updateMoscowClock() {
         const now = new Date();
         const msk = new Date(now.getTime() + (3 * 60 * 60 * 1000));
@@ -416,32 +504,37 @@
         if (mskClock) mskClock.innerText = `${hh}:${mm}:${ss}`;
     }
     
-    // Основная функция обновления
-    function update() {
-        const { cycleNumber, stepNumber } = getCurrentCycleAndStep();
-        const cards = generateCombinations(cycleNumber, stepNumber);
-        renderGrid(cards);
-        updateStepDisplay(stepNumber);
-        
-        // Планируем следующее обновление в 00:01 понедельника
-        const now = new Date();
-        const mskNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
-        let nextMonday = new Date(mskNow);
-        nextMonday.setUTCDate(nextMonday.getUTCDate() + ((8 - nextMonday.getUTCDay()) % 7 || 7));
-        nextMonday.setUTCHours(0, 1, 0, 0);
-        
-        const delay = nextMonday.getTime() - mskNow.getTime();
-        if (delay > 0 && delay < 7 * 24 * 60 * 60 * 1000) {
-            setTimeout(() => {
-                update();
-            }, delay);
-        }
-    }
-    
-    // Запуск
+    // ========= ИНИЦИАЛИЗАЦИЯ =========
     function init() {
-        update();
+        // Загружаем текущую неделю
+        loadCurrentWeek();
+        
+        // Запускаем часы
+        updateMoscowClock();
         setInterval(updateMoscowClock, 1000);
+        
+        // Планируем еженедельное обновление
+        scheduleNextWeekUpdate();
+        
+        // Назначаем обработчики кнопок
+        if (prevBtn) {
+            prevBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                loadPreviousWeek();
+            });
+        }
+        
+        if (currentBtn) {
+            currentBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                // Принудительно сбрасываем таймер и показываем текущую неделю
+                if (autoResetTimer) {
+                    clearTimeout(autoResetTimer);
+                    autoResetTimer = null;
+                }
+                loadCurrentWeek();
+            });
+        }
     }
     
     init();
