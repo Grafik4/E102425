@@ -258,18 +258,19 @@
     const NUMBERS_PER_CARD = 4;
     const TOTAL_STEPS_IN_CYCLE = 10;
     
-    // ГРУППА 1: красные кружочки (10 чисел) - всегда на первом месте
-    const RED_NUMBERS = new Set([2, 3, 4, 12, 22, 25, 35, 36, 41, 27]);
-    const RED_ARRAY = [2, 3, 4, 12, 22, 25, 35, 36, 41, 27];
+    // ГРУППА 1: красные кружочки (ровно 10 чисел) - всегда на первом месте
+    // Исправлено: вместо 41 теперь 40 (диапазон от 1 до 40)
+    const RED_NUMBERS = new Set([2, 3, 4, 12, 22, 25, 35, 36, 40, 27]);
+    const RED_ARRAY = [2, 3, 4, 12, 22, 25, 35, 36, 40, 27];
     
     // ГРУППА 2: синие кружочки (10 чисел) - всегда на втором месте
     const BLUE_NUMBERS = new Set([18, 8, 21, 20, 23, 7, 19, 29, 24, 10]);
     const BLUE_ARRAY = [18, 8, 21, 20, 23, 7, 19, 29, 24, 10];
     
-    // Все особые числа
+    // Все особые числа (красные + синие)
     const SPECIAL_NUMBERS = new Set([...RED_NUMBERS, ...BLUE_NUMBERS]);
     
-    // Остальные числа
+    // Остальные числа (от 1 до 40, исключая особые)
     const REMAINING_ARRAY = (() => {
         const remaining = [];
         for (let i = 1; i <= 40; i++) {
@@ -277,6 +278,10 @@
         }
         return remaining;
     })();
+    
+    // Проверка: всего чисел должно быть 40 (10 красных + 10 синих + 20 обычных)
+    // console.log('Всего чисел:', RED_ARRAY.length + BLUE_ARRAY.length + REMAINING_ARRAY.length);
+    // console.log('Обычных чисел должно быть 20:', REMAINING_ARRAY.length);
     
     // ========= ДЕТЕРМИНИРОВАННЫЙ ПСЕВДОСЛУЧАЙНЫЙ ГЕНЕРАТОР =========
     function hashString(str) {
@@ -310,6 +315,7 @@
     // ========= РАСЧЁТ ТЕКУЩЕГО ШАГА И ЦИКЛА =========
     function getCurrentCycleAndStep(referenceDate = null) {
         const now = referenceDate ? new Date(referenceDate) : new Date();
+        // Переводим в московское время (UTC+3)
         const mskNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
         
         const year = mskNow.getUTCFullYear();
@@ -348,17 +354,20 @@
         const seed = hashString(seedString);
         const rng = new SeededRandom(seed);
         
+        // Перемешиваем отдельно красные, синие и обычные числа
         const shuffledRed = rng.shuffleArray([...RED_ARRAY]);
         const shuffledBlue = rng.shuffleArray([...BLUE_ARRAY]);
         const shuffledRemaining = rng.shuffleArray([...REMAINING_ARRAY]);
         
         const cards = Array(TOTAL_CARDS).fill().map(() => Array(NUMBERS_PER_CARD).fill(null));
         
+        // Заполняем первые две позиции (красный и синий)
         for (let i = 0; i < TOTAL_CARDS; i++) {
             cards[i][0] = shuffledRed[i];
             cards[i][1] = shuffledBlue[i];
         }
         
+        // Заполняем позиции 2 и 3 (обычные числа)
         let remainingIndex = 0;
         for (let i = 0; i < TOTAL_CARDS; i++) {
             for (let pos = 2; pos < NUMBERS_PER_CARD; pos++) {
@@ -366,6 +375,7 @@
             }
         }
         
+        // Для каждой карты перемешиваем два обычных числа (позиции 2 и 3)
         for (let card of cards) {
             const others = [card[2], card[3]];
             const cardSeed = hashString(`${seedString}:${card[0]}:${card[1]}`);
@@ -446,7 +456,6 @@
     
     // Загрузка предыдущей недели с автосбросом через 60 секунд
     function loadPreviousWeek() {
-        // Если уже в режиме просмотра прошлой недели, сбрасываем старый таймер и запускаем новый
         if (autoResetTimer) {
             clearTimeout(autoResetTimer);
             autoResetTimer = null;
@@ -460,7 +469,6 @@
         
         // Автоматический возврат к текущей неделе через 1 минуту
         autoResetTimer = setTimeout(() => {
-            // Проверяем, не переключился ли уже пользователь вручную
             if (isPrevModeActive === true) {
                 loadCurrentWeek();
             }
@@ -475,14 +483,13 @@
         const now = new Date();
         const mskNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
         let nextMonday = new Date(mskNow);
+        // Вычисляем следующий понедельник 00:01 MSK
         nextMonday.setUTCDate(nextMonday.getUTCDate() + ((8 - nextMonday.getUTCDay()) % 7 || 7));
         nextMonday.setUTCHours(0, 1, 0, 0);
         const delay = nextMonday.getTime() - mskNow.getTime();
         
         if (delay > 0 && delay < 7 * 24 * 60 * 60 * 1000) {
             scheduledWeeklyUpdate = setTimeout(() => {
-                // При наступлении нового понедельника обновляем комбинацию до актуальной
-                // Если активен режим просмотра прошлой недели — принудительно сбрасываем
                 if (autoResetTimer) {
                     clearTimeout(autoResetTimer);
                     autoResetTimer = null;
@@ -506,6 +513,23 @@
     
     // ========= ИНИЦИАЛИЗАЦИЯ =========
     function init() {
+        // Валидация: убеждаемся, что все числа от 1 до 40 присутствуют ровно один раз в наборах
+        const allSpecialCount = RED_ARRAY.length + BLUE_ARRAY.length;
+        const remainingCount = REMAINING_ARRAY.length;
+        if (allSpecialCount !== 20 || remainingCount !== 20) {
+            console.error('Ошибка в распределении чисел! Красных+синих:', allSpecialCount, 'Обычных:', remainingCount);
+        }
+        
+        // Дополнительная проверка: все ли числа от 1 до 40 покрыты
+        const totalSet = new Set([...RED_ARRAY, ...BLUE_ARRAY, ...REMAINING_ARRAY]);
+        let missingNumbers = [];
+        for (let i = 1; i <= 40; i++) {
+            if (!totalSet.has(i)) missingNumbers.push(i);
+        }
+        if (missingNumbers.length > 0) {
+            console.error('Отсутствуют числа:', missingNumbers);
+        }
+        
         // Загружаем текущую неделю
         loadCurrentWeek();
         
@@ -527,7 +551,6 @@
         if (currentBtn) {
             currentBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                // Принудительно сбрасываем таймер и показываем текущую неделю
                 if (autoResetTimer) {
                     clearTimeout(autoResetTimer);
                     autoResetTimer = null;
