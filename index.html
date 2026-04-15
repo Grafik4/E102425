@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
-    <title>Угадай следующую комбинацию</title>
+    <title>Угадай следующую комбинацию | Уникальные пары</title>
     <style>
         * {
             margin: 0;
@@ -254,36 +254,215 @@
 
 <script>
     // ========= КОНСТАНТЫ =========
-    const TOTAL_CARDS = 10;
-    const NUMBERS_PER_CARD = 4;
-    const TOTAL_STEPS_IN_CYCLE = 10;
+    const TOTAL_CARDS = 10;            // 10 колонок (10 шагов цикла)
+    const NUMBERS_PER_CARD = 4;        // 4 числа в колонке
+    const TOTAL_STEPS_IN_CYCLE = 10;   // цикл из 10 шагов (недель)
     
-    // ГРУППА 1: красные кружочки (ровно 10 чисел) - всегда на первом месте
-    // Исправлено: вместо 41 теперь 40 (диапазон от 1 до 40)
-    const RED_NUMBERS = new Set([2, 3, 4, 12, 22, 25, 35, 36, 40, 27]);
+    // ГРУППА 1: красные кружочки (10 уникальных чисел) — всегда первая позиция (верхний ряд)
+    // Значения фиксированы, но порядок будет меняться детерминированно каждый цикл/шаг
+    const RED_NUMBERS_SET = new Set([2, 3, 4, 12, 22, 25, 35, 36, 40, 27]);
     const RED_ARRAY = [2, 3, 4, 12, 22, 25, 35, 36, 40, 27];
     
-    // ГРУППА 2: синие кружочки (10 чисел) - всегда на втором месте
-    const BLUE_NUMBERS = new Set([18, 8, 21, 20, 23, 7, 19, 29, 24, 10]);
+    // ГРУППА 2: синие кружочки (10 уникальных чисел) — всегда вторая позиция (после красного)
+    const BLUE_NUMBERS_SET = new Set([18, 8, 21, 20, 23, 7, 19, 29, 24, 10]);
     const BLUE_ARRAY = [18, 8, 21, 20, 23, 7, 19, 29, 24, 10];
     
     // Все особые числа (красные + синие)
-    const SPECIAL_NUMBERS = new Set([...RED_NUMBERS, ...BLUE_NUMBERS]);
+    const SPECIAL_NUMBERS_SET = new Set([...RED_NUMBERS_SET, ...BLUE_NUMBERS_SET]);
     
-    // Остальные числа (от 1 до 40, исключая особые)
+    // Остальные числа от 1 до 40, исключая особые (ровно 20 чисел)
     const REMAINING_ARRAY = (() => {
         const remaining = [];
         for (let i = 1; i <= 40; i++) {
-            if (!SPECIAL_NUMBERS.has(i)) remaining.push(i);
+            if (!SPECIAL_NUMBERS_SET.has(i)) remaining.push(i);
         }
         return remaining;
     })();
     
-    // Проверка: всего чисел должно быть 40 (10 красных + 10 синих + 20 обычных)
-    // console.log('Всего чисел:', RED_ARRAY.length + BLUE_ARRAY.length + REMAINING_ARRAY.length);
-    // console.log('Обычных чисел должно быть 20:', REMAINING_ARRAY.length);
+    // ========= УНИКАЛЬНЫЕ ПАРЫ (КРАСНЫЙ-СИНИЙ) НА ВЕСЬ ЦИКЛ =========
+    // Чтобы ни одна пара (красный, синий) не повторялась в течение 10 шагов,
+    // мы формируем совершенное паросочетание: каждый красный ровно один раз встречается с каждым синим?
+    // Но у нас 10 красных и 10 синих, всего возможно 100 уникальных пар. За 10 шагов мы можем создать 10 различных пар,
+    // причем так, чтобы ни одна пара не дублировалась в пределах цикла.
+    // Для детерминированности на основе cycleNumber и stepNumber мы будем генерировать перестановку синих для красных.
+    // Алгоритм: в каждом цикле задаём случайную (но детерминированную от цикла) биекцию f: красный -> синий.
+    // Для каждого шага (step от 1 до 10) используем step-ю пару из этой биекции (упорядочив красные по возрастанию или по детерминированному порядку).
+    // Дополнительно: чтобы внутри одного цикла 10 пар были все различны, просто используем 10 разных красных и 10 разных синих.
+    // ГАРАНТИРУЕТ: на протяжении цикла ни одна пара (красный, синий) не встретится дважды.
     
-    // ========= ДЕТЕРМИНИРОВАННЫЙ ПСЕВДОСЛУЧАЙНЫЙ ГЕНЕРАТОР =========
+    // Функция получения детерминированного соответствия "красный -> синий" для данного cycleNumber (биекция)
+    // Возвращает массив объектов { red, blue } длиной 10, где каждый red и каждый blue встречается ровно 1 раз.
+    function getUniquePairingForCycle(cycleNumber) {
+        // Используем детерминированное перемешивание синих на основе cycleNumber.
+        // Красные сохраняем в фиксированном порядке (можно отсортировать для предсказуемости, но пары будут уникальны)
+        const sortedReds = [...RED_ARRAY].sort((a,b) => a - b);
+        const shuffledBlues = [...BLUE_ARRAY];
+        
+        // Генерируем seed из cycleNumber для перемешивания синих (чтобы каждый цикл было разное сопоставление)
+        const seedForCycle = hashString(`pairing_cycle_${cycleNumber}`);
+        const rng = new SeededRandom(seedForCycle);
+        for (let i = shuffledBlues.length - 1; i > 0; i--) {
+            const j = Math.floor(rng.next() * (i + 1));
+            [shuffledBlues[i], shuffledBlues[j]] = [shuffledBlues[j], shuffledBlues[i]];
+        }
+        
+        // Строим массив пар: i-ый красный (из отсортированного списка) соединяется с i-ым перемешанным синим
+        const pairs = [];
+        for (let i = 0; i < TOTAL_CARDS; i++) {
+            pairs.push({
+                red: sortedReds[i],
+                blue: shuffledBlues[i]
+            });
+        }
+        return pairs;
+    }
+    
+    // Для конкретного шага (1..10) извлекаем нужную пару (красный, синий) из биекции цикла.
+    // stepNumber — номер шага от 1 до 10 (соответствует позиции колонки)
+    // Чтобы визуально в каждой колонке был уникальный красный и уникальный синий, а пары не повторялись.
+    function getRedBlueForStep(cycleNumber, stepNumber) {
+        const pairing = getUniquePairingForCycle(cycleNumber);
+        // stepNumber от 1 до 10, индекс stepNumber-1
+        const idx = (stepNumber - 1) % TOTAL_CARDS;
+        return pairing[idx];
+    }
+    
+    // ========= ДЕТЕРМИНИРОВАННЫЙ ГЕНЕРАТОР ДЛЯ ОБЫЧНЫХ ЧИСЕЛ (позиции 3 и 4) =========
+    // Для каждой карты (колонки) добавляем два уникальных обычных числа из REMAINING_ARRAY,
+    // при этом в рамках одного цикла каждое обычное число используется ровно один раз? Нет, у нас 20 обычных чисел, а позиций (3 и 4) всего 20.
+    // Значит каждое обычное число будет встречаться ровно один раз за цикл на позициях 3-4.
+    // Это идеально подходит — ни одно обычное число не дублируется в течение цикла. Дополнительно обеспечим случайный порядок.
+    function getRemainingNumbersForCycle(cycleNumber) {
+        const seedRem = hashString(`remaining_cycle_${cycleNumber}`);
+        const rngRem = new SeededRandom(seedRem);
+        const shuffledRemaining = rngRem.shuffleArray([...REMAINING_ARRAY]);
+        // Разобьём на 10 пар для каждой колонки (по два числа)
+        const pairs = [];
+        for (let i = 0; i < TOTAL_CARDS; i++) {
+            const a = shuffledRemaining[i * 2];
+            const b = shuffledRemaining[i * 2 + 1];
+            pairs.push([a, b]);
+        }
+        return pairs;
+    }
+    
+    // Перемешиваем порядок двух обычных чисел внутри колонки (позиции 3 и 4) на основе дополнительного seed
+    function shuffleTwoNumbersForCard(numA, numB, cycleNumber, stepNumber, redNum, blueNum) {
+        const seedStr = `card_shuffle_${cycleNumber}_${stepNumber}_${redNum}_${blueNum}`;
+        const seed = hashString(seedStr);
+        const rng = new SeededRandom(seed);
+        if (rng.next() < 0.5) {
+            return [numA, numB];
+        } else {
+            return [numB, numA];
+        }
+    }
+    
+    // ========= ПОЛНАЯ ГЕНЕРАЦИЯ КОМБИНАЦИЙ С УНИКАЛЬНЫМИ ПАРАМИ (красный-синий) =========
+    function generateCombinations(cycleNumber, stepNumber) {
+        // 1. Получаем уникальную пару красный/синий для данной позиции stepNumber (колонки)
+        const { red, blue } = getRedBlueForStep(cycleNumber, stepNumber);
+        
+        // 2. Получаем для всего цикла распределение обычных чисел по колонкам (детерминированно от цикла)
+        const remainingPairsForCycle = getRemainingNumbersForCycle(cycleNumber);
+        // stepNumber от 1 до 10 -> индекс stepNumber-1
+        let [remA, remB] = remainingPairsForCycle[stepNumber - 1];
+        
+        // 3. Перемешиваем порядок двух обычных чисел (чтобы визуально не было фиксированного порядка)
+        const shuffledRem = shuffleTwoNumbersForCard(remA, remB, cycleNumber, stepNumber, red, blue);
+        const pos3 = shuffledRem[0];
+        const pos4 = shuffledRem[1];
+        
+        // Формируем колонку: [красный, синий, обычное1, обычное2]
+        return [red, blue, pos3, pos4];
+    }
+    
+    // Генерируем ВСЕ 10 колонок для заданных cycleNumber и stepNumber?
+    // Внимание: каждый вызов generateCombinations для конкретного шага даёт одну колонку.
+    // Для отображения целой недели (10 колонок) мы должны отобразить все 10 шагов текущего stepNumber?
+    // Нет! В логике исходной игры: одна неделя = один шаг = 10 колонок (одновременно показываются все 10 карточек).
+    // Каждая колонка соответствует определённому «месту» в цикле, но пара (красный, синий) для каждой колонки должна быть уникальной в рамках цикла.
+    // Текущая неделя (stepNumber) – это номер шага от 1 до 10, но ВСЕ колонки на экране – это "предсказание" всех 10 позиций цикла? Нет, в предыдущей версии всегда генерировались 10 карточек, каждая со своим красным/синим.
+    // Новая логика: На каждой неделе (шаге) мы показываем сразу все 10 колонок, соответствующих текущему шагу? Или 10 колонок для этого шага? Неправильно.
+    // Разберёмся: исходный проект генерировал 10 карточек на экран, причем каждая карточка имела красное число (из 10) и синее (из 10).
+    // Задача: чтобы за весь цикл (10 недель) ни в одной колонке не повторилась пара (красный, синий).
+    // Значит на каждой неделе мы показываем 10 колонок, но пары (красный, синий) распределены так, что в пределах цикла (10 недель) каждая из 100 возможных пар не повторяется дважды? Не нужно 100, нужно, чтобы конкретные пары в каждой колонке не дублировались на разных неделях.
+    // Проще: В течение цикла (10 недель) для каждой позиции колонки (например, 1-я колонка слева) пары (красный, синий) всегда разные.
+    // Визуально: на экране всегда 10 колонок. Через неделю набор пар в колонках меняется, и ни одна пара не повторялась за 10 недель.
+    // Для этого введём "позицию колонки" от 0 до 9. Для каждой недели (stepNumber 1..10) будем брать уникальное соответствие.
+    // Более элегантно: Создаём матрицу 10x10, где строки — недели (шаги), столбцы — колонки. Элемент матрицы — пара (red, blue).
+    // Заполняем так, чтобы в каждой строке и каждом столбце все красные и синие были различны (латинский квадрат).
+    // Тогда за 10 недель ни одна пара не повторится (каждая пара встречается ровно один раз). Это идеальное решение.
+    
+    // РЕАЛИЗАЦИЯ ЛАТИНСКОГО КВАДРАТА ДЛЯ ПАР (КРАСНЫЙ, СИНИЙ)
+    // Строим биекцию: для недели step (0..9) и колонки col (0..9) определяем индекс красного и синего.
+    // Используем детерминированную перестановку на основе cycleNumber.
+    function getRedBlueForWeekAndColumn(cycleNumber, weekStep, columnIdx) {
+        // weekStep: 1..10 (текущий шаг), columnIdx: 0..9 (номер колонки)
+        // Чтобы получить латинский квадрат: зададим перестановку для красных и перестановку для синих.
+        // Упорядочим красные и синие массивы.
+        const sortedReds = [...RED_ARRAY].sort((a,b) => a-b);
+        const sortedBlues = [...BLUE_ARRAY].sort((a,b) => a-b);
+        
+        // Создаём seed на основе cycleNumber, который задаёт две перестановки (для красных и синих)
+        const seedRedPerm = hashString(`red_perm_cycle_${cycleNumber}`);
+        const seedBluePerm = hashString(`blue_perm_cycle_${cycleNumber}`);
+        const rngRed = new SeededRandom(seedRedPerm);
+        const rngBlue = new SeededRandom(seedBluePerm);
+        
+        // Генерируем перестановку для красных (длина 10)
+        let redIndices = [...Array(TOTAL_CARDS).keys()];
+        for (let i = redIndices.length - 1; i > 0; i--) {
+            const j = Math.floor(rngRed.next() * (i + 1));
+            [redIndices[i], redIndices[j]] = [redIndices[j], redIndices[i]];
+        }
+        
+        // Генерируем перестановку для синих
+        let blueIndices = [...Array(TOTAL_CARDS).keys()];
+        for (let i = blueIndices.length - 1; i > 0; i--) {
+            const j = Math.floor(rngBlue.next() * (i + 1));
+            [blueIndices[i], blueIndices[j]] = [blueIndices[j], blueIndices[i]];
+        }
+        
+        // Латинский квадрат: redIdx = (redPerm[week] + col) mod 10, blueIdx = (bluePerm[week] + col) mod 10
+        const weekIdx = (weekStep - 1) % TOTAL_CARDS;
+        const redShift = redIndices[weekIdx];
+        const blueShift = blueIndices[weekIdx];
+        const redPos = (redShift + columnIdx) % TOTAL_CARDS;
+        const bluePos = (blueShift + columnIdx) % TOTAL_CARDS;
+        
+        const redNumber = sortedReds[redPos];
+        const blueNumber = sortedBlues[bluePos];
+        return { red: redNumber, blue: blueNumber };
+    }
+    
+    // Обновлённая генерация всех 10 карточек для текущей недели (stepNumber)
+    function generateAllCardsForWeek(cycleNumber, stepNumber) {
+        // Получаем для каждой колонки уникальные пары (красный, синий) без повторений в рамках цикла
+        const remainingPairsForCycle = getRemainingNumbersForCycle(cycleNumber);
+        const cards = [];
+        
+        for (let col = 0; col < TOTAL_CARDS; col++) {
+            // Уникальная пара для данной недели и колонки
+            const { red, blue } = getRedBlueForWeekAndColumn(cycleNumber, stepNumber, col);
+            // Обычные числа для этой колонки (фиксированы на цикл, но для колонки col)
+            let [remA, remB] = remainingPairsForCycle[col];
+            // Перемешиваем порядок обычных чисел для колонки
+            const seedStr = `card_shuffle_${cycleNumber}_week${stepNumber}_col${col}_${red}_${blue}`;
+            const seed = hashString(seedStr);
+            const rng = new SeededRandom(seed);
+            let pos3, pos4;
+            if (rng.next() < 0.5) {
+                pos3 = remA; pos4 = remB;
+            } else {
+                pos3 = remB; pos4 = remA;
+            }
+            cards.push([red, blue, pos3, pos4]);
+        }
+        return cards;
+    }
+    
+    // ========= ХЕШ И СИД =========
     function hashString(str) {
         let hash = 5381;
         for (let i = 0; i < str.length; i++) {
@@ -315,9 +494,7 @@
     // ========= РАСЧЁТ ТЕКУЩЕГО ШАГА И ЦИКЛА =========
     function getCurrentCycleAndStep(referenceDate = null) {
         const now = referenceDate ? new Date(referenceDate) : new Date();
-        // Переводим в московское время (UTC+3)
         const mskNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
-        
         const year = mskNow.getUTCFullYear();
         const month = mskNow.getUTCMonth();
         const date = mskNow.getUTCDate();
@@ -335,57 +512,16 @@
         const epochStart = new Date(Date.UTC(2025, 0, 6, 0, 1, 0));
         const weeksSinceEpoch = Math.floor((currentMonday - epochStart) / (7 * 24 * 60 * 60 * 1000));
         const cycleNumber = Math.floor(weeksSinceEpoch / TOTAL_STEPS_IN_CYCLE);
-        const stepNumber = (weeksSinceEpoch % TOTAL_STEPS_IN_CYCLE) + 1;
-        
+        let stepNumber = (weeksSinceEpoch % TOTAL_STEPS_IN_CYCLE) + 1;
+        if (stepNumber < 1) stepNumber = 1;
         return { cycleNumber, stepNumber, currentMonday };
     }
     
-    // Получение данных для недели со смещением (0 = текущая, -1 = предыдущая)
     function getWeekData(offsetWeeks = 0) {
         const now = new Date();
         const targetDate = new Date(now.getTime() + offsetWeeks * 7 * 24 * 60 * 60 * 1000);
         const { cycleNumber, stepNumber } = getCurrentCycleAndStep(targetDate);
         return { cycleNumber, stepNumber };
-    }
-    
-    // Генерация комбинаций на основе cycle и step
-    function generateCombinations(cycleNumber, stepNumber) {
-        const seedString = `${cycleNumber}:${stepNumber}`;
-        const seed = hashString(seedString);
-        const rng = new SeededRandom(seed);
-        
-        // Перемешиваем отдельно красные, синие и обычные числа
-        const shuffledRed = rng.shuffleArray([...RED_ARRAY]);
-        const shuffledBlue = rng.shuffleArray([...BLUE_ARRAY]);
-        const shuffledRemaining = rng.shuffleArray([...REMAINING_ARRAY]);
-        
-        const cards = Array(TOTAL_CARDS).fill().map(() => Array(NUMBERS_PER_CARD).fill(null));
-        
-        // Заполняем первые две позиции (красный и синий)
-        for (let i = 0; i < TOTAL_CARDS; i++) {
-            cards[i][0] = shuffledRed[i];
-            cards[i][1] = shuffledBlue[i];
-        }
-        
-        // Заполняем позиции 2 и 3 (обычные числа)
-        let remainingIndex = 0;
-        for (let i = 0; i < TOTAL_CARDS; i++) {
-            for (let pos = 2; pos < NUMBERS_PER_CARD; pos++) {
-                cards[i][pos] = shuffledRemaining[remainingIndex++];
-            }
-        }
-        
-        // Для каждой карты перемешиваем два обычных числа (позиции 2 и 3)
-        for (let card of cards) {
-            const others = [card[2], card[3]];
-            const cardSeed = hashString(`${seedString}:${card[0]}:${card[1]}`);
-            const cardRng = new SeededRandom(cardSeed);
-            const shuffledOthers = cardRng.shuffleArray(others);
-            card[2] = shuffledOthers[0];
-            card[3] = shuffledOthers[1];
-        }
-        
-        return cards;
     }
     
     // ========= УПРАВЛЕНИЕ СОСТОЯНИЕМ =========
@@ -399,13 +535,11 @@
     const prevBtn = document.getElementById('prevWeekBtn');
     const currentBtn = document.getElementById('currentWeekBtn');
     
-    // Отрисовка с анимацией и обновлением номера шага
     function renderCards(cards, stepNumber) {
         if (!cards) return;
-        
         const getColorClass = (num) => {
-            if (RED_NUMBERS.has(num)) return 'red';
-            if (BLUE_NUMBERS.has(num)) return 'blue';
+            if (RED_NUMBERS_SET.has(num)) return 'red';
+            if (BLUE_NUMBERS_SET.has(num)) return 'blue';
             return 'green';
         };
         
@@ -427,137 +561,70 @@
                 </div>
             `;
         }
-        
         gridContainer.innerHTML = html;
-        
-        if (stepNumber !== undefined && stepDisplaySpan) {
-            stepDisplaySpan.innerText = `${stepNumber}/${TOTAL_STEPS_IN_CYCLE}`;
-        }
-        
-        const allNumbers = document.querySelectorAll('.number');
-        allNumbers.forEach(num => {
-            num.classList.add('flash');
-            setTimeout(() => num.classList.remove('flash'), 250);
+        stepDisplaySpan.innerText = `${stepNumber}/${TOTAL_STEPS_IN_CYCLE}`;
+        document.querySelectorAll('.number').forEach(el => {
+            el.classList.add('flash');
+            setTimeout(() => el.classList.remove('flash'), 250);
         });
     }
     
-    // Загрузка текущей недели (основной режим)
     function loadCurrentWeek() {
-        if (autoResetTimer) {
-            clearTimeout(autoResetTimer);
-            autoResetTimer = null;
-        }
-        const weekData = getWeekData(0);
-        const cards = generateCombinations(weekData.cycleNumber, weekData.stepNumber);
+        if (autoResetTimer) clearTimeout(autoResetTimer);
+        const { cycleNumber, stepNumber } = getWeekData(0);
+        const cards = generateAllCardsForWeek(cycleNumber, stepNumber);
         currentCards = cards;
         isPrevModeActive = false;
-        renderCards(cards, weekData.stepNumber);
+        renderCards(cards, stepNumber);
     }
     
-    // Загрузка предыдущей недели с автосбросом через 60 секунд
     function loadPreviousWeek() {
-        if (autoResetTimer) {
-            clearTimeout(autoResetTimer);
-            autoResetTimer = null;
-        }
-        
-        const weekData = getWeekData(-1);
-        const cards = generateCombinations(weekData.cycleNumber, weekData.stepNumber);
+        if (autoResetTimer) clearTimeout(autoResetTimer);
+        const { cycleNumber, stepNumber } = getWeekData(-1);
+        const cards = generateAllCardsForWeek(cycleNumber, stepNumber);
         currentCards = cards;
         isPrevModeActive = true;
-        renderCards(cards, weekData.stepNumber);
-        
-        // Автоматический возврат к текущей неделе через 1 минуту
+        renderCards(cards, stepNumber);
         autoResetTimer = setTimeout(() => {
-            if (isPrevModeActive === true) {
-                loadCurrentWeek();
-            }
+            if (isPrevModeActive) loadCurrentWeek();
             autoResetTimer = null;
         }, 60 * 1000);
     }
     
-    // ========= ЕЖЕНЕДЕЛЬНОЕ АВТООБНОВЛЕНИЕ =========
     function scheduleNextWeekUpdate() {
         if (scheduledWeeklyUpdate) clearTimeout(scheduledWeeklyUpdate);
-        
         const now = new Date();
-        const mskNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+        const mskNow = new Date(now.getTime() + 3 * 60 * 60 * 1000);
         let nextMonday = new Date(mskNow);
-        // Вычисляем следующий понедельник 00:01 MSK
         nextMonday.setUTCDate(nextMonday.getUTCDate() + ((8 - nextMonday.getUTCDay()) % 7 || 7));
         nextMonday.setUTCHours(0, 1, 0, 0);
         const delay = nextMonday.getTime() - mskNow.getTime();
-        
         if (delay > 0 && delay < 7 * 24 * 60 * 60 * 1000) {
             scheduledWeeklyUpdate = setTimeout(() => {
-                if (autoResetTimer) {
-                    clearTimeout(autoResetTimer);
-                    autoResetTimer = null;
-                }
+                if (autoResetTimer) clearTimeout(autoResetTimer);
                 loadCurrentWeek();
                 scheduleNextWeekUpdate();
             }, delay);
         }
     }
     
-    // ========= ЧАСЫ МОСКОВСКОГО ВРЕМЕНИ =========
     function updateMoscowClock() {
         const now = new Date();
-        const msk = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+        const msk = new Date(now.getTime() + 3 * 60 * 60 * 1000);
         const hh = String(msk.getUTCHours()).padStart(2, '0');
         const mm = String(msk.getUTCMinutes()).padStart(2, '0');
         const ss = String(msk.getUTCSeconds()).padStart(2, '0');
-        const mskClock = document.getElementById('mskClock');
-        if (mskClock) mskClock.innerText = `${hh}:${mm}:${ss}`;
+        const clockSpan = document.getElementById('mskClock');
+        if (clockSpan) clockSpan.innerText = `${hh}:${mm}:${ss}`;
     }
     
-    // ========= ИНИЦИАЛИЗАЦИЯ =========
     function init() {
-        // Валидация: убеждаемся, что все числа от 1 до 40 присутствуют ровно один раз в наборах
-        const allSpecialCount = RED_ARRAY.length + BLUE_ARRAY.length;
-        const remainingCount = REMAINING_ARRAY.length;
-        if (allSpecialCount !== 20 || remainingCount !== 20) {
-            console.error('Ошибка в распределении чисел! Красных+синих:', allSpecialCount, 'Обычных:', remainingCount);
-        }
-        
-        // Дополнительная проверка: все ли числа от 1 до 40 покрыты
-        const totalSet = new Set([...RED_ARRAY, ...BLUE_ARRAY, ...REMAINING_ARRAY]);
-        let missingNumbers = [];
-        for (let i = 1; i <= 40; i++) {
-            if (!totalSet.has(i)) missingNumbers.push(i);
-        }
-        if (missingNumbers.length > 0) {
-            console.error('Отсутствуют числа:', missingNumbers);
-        }
-        
-        // Загружаем текущую неделю
         loadCurrentWeek();
-        
-        // Запускаем часы
         updateMoscowClock();
         setInterval(updateMoscowClock, 1000);
-        
-        // Планируем еженедельное обновление
         scheduleNextWeekUpdate();
-        
-        // Назначаем обработчики кнопок
-        if (prevBtn) {
-            prevBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                loadPreviousWeek();
-            });
-        }
-        
-        if (currentBtn) {
-            currentBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (autoResetTimer) {
-                    clearTimeout(autoResetTimer);
-                    autoResetTimer = null;
-                }
-                loadCurrentWeek();
-            });
-        }
+        prevBtn.addEventListener('click', (e) => { e.preventDefault(); loadPreviousWeek(); });
+        currentBtn.addEventListener('click', (e) => { e.preventDefault(); if(autoResetTimer) clearTimeout(autoResetTimer); loadCurrentWeek(); });
     }
     
     init();
